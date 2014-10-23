@@ -635,19 +635,28 @@ class Dnsmasq(DhcpLocalProcess):
 
         for port in self.network.ports:
             if getattr(port, 'extra_dhcp_opts', False):
-                for ip_version in (4, 6):
-                    if any(
-                        netaddr.IPAddress(ip.ip_address).version == ip_version
-                            for ip in port.fixed_ips):
+                port_ip_versions = set([netaddr.IPAddress(ip.ip_address).version
+                                       for ip in port.fixed_ips])
+                for opt in port.extra_dhcp_opts:
+                    opt_ip_version = getattr(opt, 'ip_version', None)
+                    if opt_ip_version:
+                        if opt_ip_version in port_ip_versions:
+                            options.append(
+                                self._format_option(opt_ip_version, port.id,
+                                                    opt.opt_name, opt.opt_value))
+                        else:
+                            LOG.warning(_("Cannot apply dhcp option %(opt) because it's "
+                                          "ip_version %(version) is not in port's address "
+                                          "IP versions"),
+                                        {'opt': getattr(opt, 'opt_name'),
+                                         'version': opt_ip_version})
+                    else:
+                        # Apply dhcp option to all port address ip versions
+                        # if ip_version of option is not specified
                         options.extend(
-                            # TODO(xuhanp):Instead of applying extra_dhcp_opts
-                            # to both DHCPv4 and DHCPv6, we need to find a new
-                            # way to specify options for v4 and v6
-                            # respectively. We also need to validate the option
-                            # before applying it.
-                            self._format_option(ip_version, port.id,
+                            self._format_option(version, port.id,
                                                 opt.opt_name, opt.opt_value)
-                            for opt in port.extra_dhcp_opts)
+                            for version in port_ip_versions)
 
             # provides all dnsmasq ip as dns-server if there is more than
             # one dnsmasq for a subnet and there is no dns-server submitted
